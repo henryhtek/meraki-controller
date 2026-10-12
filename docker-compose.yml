@@ -1,0 +1,39 @@
+# Project name used by Docker Compose (avoids long auto-generated image names)
+name: meraki-controller
+
+# Default: join external network "outside" (use with Nginx Proxy Manager).
+# For host-network mode (no NPM), see DOCKER-CLOUDFLARE-SETUP.md section A.3.2.
+services:
+  meraki-api-gateway:
+    build: .
+    image: meraki-api-gateway:latest
+    container_name: meraki-api-gateway
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+    # Do NOT publish the port when placed behind Nginx Proxy Manager + Cloudflare Tunnel
+    # ports:
+    #   - "8080:8080"
+    networks:
+      - outside
+    # Optional resource limits for Raspberry Pi
+    # mem_limit: 256m
+    # cpus: "0.50"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - meraki-api-gateway
+    networks:
+      - outside
+
+networks:
+  outside:
+    external: true

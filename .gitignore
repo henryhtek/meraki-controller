@@ -1,0 +1,52 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets.yaml
+**/secrets.yaml
+**/config/secrets.yaml
+
+# Home Assistant runtime / local data
+homeassistant/config/
+**/config/.storage/
+**/config/home-assistant_v2.db*
+**/config/*.db
+**/config/*.db-shm
+**/config/*.db-wal
+**/config/tts/
+**/config/deps/
+**/config/blueprints/
+
+# Cloudflare / tunnel tokens
+*tunnel*.json
+*.pem
+*.key
+*.crt
+!*.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*~
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker local overrides
+docker-compose.override.yml
