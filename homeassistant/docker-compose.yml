@@ -1,0 +1,30 @@
+# Home Assistant – sample stack for Meraki API Gateway (Option D)
+#
+# Usage:
+#   mkdir -p ~/homeassistant && cd ~/homeassistant
+#   copy this file and create config/
+#   docker compose up -d
+#
+# Network: join external "outside" if meraki-api-gateway runs on that network.
+# Or use network_mode: host and call the gateway via public URL / 127.0.0.1.
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - TZ=Australia/Sydney
+    volumes:
+      - ./config:/config
+    ports:
+      - "8123:8123"
+    networks:
+      - outside
+    # Alternative: host network (comment out ports + networks above, then):
+    # network_mode: host
+
+networks:
+  outside:
+    external: true
