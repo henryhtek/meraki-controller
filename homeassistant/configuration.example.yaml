@@ -1,0 +1,256 @@
+# Home Assistant configuration for Meraki API Gateway — multiple ports
+# HA 2026.8+ — merge into ~/homeassistant/config/configuration.yaml
+#
+# Reverse proxy: Settings → System → Network → HTTP server (not http: YAML)
+# Mobile app: keep default_config: (includes mobile_app)
+#
+# Pattern per port N:
+#   1) secrets: meraki_port_N_on_url / _off_url / _status_url
+#   2) rest_command: meraki_port_N_on / _off
+#   3) sensor: Meraki Port N Enabled
+#   4) template switch: Meraki Port N (combined on/off)
+#   5) scripts: meraki_port_N_enable / _disable (with error notifications)
+#
+# Example: ports 7 and 8. Copy a block and change N for more ports.
+# Gateway .env: ALLOWED_PORTS=7,8  (or leave empty for all)
+
+default_config:
+
+# ---------------------------------------------------------------------------
+# secrets.yaml — create ~/homeassistant/config/secrets.yaml
+# ---------------------------------------------------------------------------
+# meraki_port_7_on_url: "http://meraki-api-gateway:8080/port/7/enable?token=YOUR_AUTH_TOKEN"
+# meraki_port_7_off_url: "http://meraki-api-gateway:8080/port/7/disable?token=YOUR_AUTH_TOKEN"
+# meraki_port_7_status_url: "http://meraki-api-gateway:8080/port/7/status?token=YOUR_AUTH_TOKEN"
+# meraki_port_8_on_url: "http://meraki-api-gateway:8080/port/8/enable?token=YOUR_AUTH_TOKEN"
+# meraki_port_8_off_url: "http://meraki-api-gateway:8080/port/8/disable?token=YOUR_AUTH_TOKEN"
+# meraki_port_8_status_url: "http://meraki-api-gateway:8080/port/8/status?token=YOUR_AUTH_TOKEN"
+
+# ---------------------------------------------------------------------------
+# REST commands
+# ---------------------------------------------------------------------------
+rest_command:
+  meraki_port_7_on:
+    url: !secret meraki_port_7_on_url
+    method: POST
+  meraki_port_7_off:
+    url: !secret meraki_port_7_off_url
+    method: POST
+  meraki_port_8_on:
+    url: !secret meraki_port_8_on_url
+    method: POST
+  meraki_port_8_off:
+    url: !secret meraki_port_8_off_url
+    method: POST
+
+# ---------------------------------------------------------------------------
+# Status sensors
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: rest
+    name: Meraki Port 7 Enabled
+    unique_id: meraki_port_7_enabled
+    resource: !secret meraki_port_7_status_url
+    method: GET
+    # Normalize to on/off so the template switch state is reliable
+    value_template: "{{ 'on' if value_json.enabled else 'off' }}"
+    force_update: true
+    scan_interval: 15
+  - platform: rest
+    name: Meraki Port 8 Enabled
+    unique_id: meraki_port_8_enabled
+    resource: !secret meraki_port_8_status_url
+    method: GET
+    # Normalize to on/off so the template switch state is reliable
+    value_template: "{{ 'on' if value_json.enabled else 'off' }}"
+    force_update: true
+    scan_interval: 15
+
+# ---------------------------------------------------------------------------
+# Combined on/off switches (one entity per port)
+# ---------------------------------------------------------------------------
+template:
+  - switch:
+      - name: "Meraki Port 7"
+        unique_id: meraki_port_7
+        icon: >
+          {% if is_state('sensor.meraki_port_7_enabled', 'on') %}
+            mdi:ethernet
+          {% else %}
+            mdi:ethernet-off
+          {% endif %}
+        state: "{{ is_state('sensor.meraki_port_7_enabled', 'on') }}" 
+        turn_on:
+          - action: script.meraki_port_7_enable
+        turn_off:
+          - action: script.meraki_port_7_disable
+
+      - name: "Meraki Port 8"
+        unique_id: meraki_port_8
+        icon: >
+          {% if is_state('sensor.meraki_port_8_enabled', 'on') %}
+            mdi:ethernet
+          {% else %}
+            mdi:ethernet-off
+          {% endif %}
+        state: "{{ is_state('sensor.meraki_port_8_enabled', 'on') }}" 
+        turn_on:
+          - action: script.meraki_port_8_enable
+        turn_off:
+          - action: script.meraki_port_8_disable
+
+# ---------------------------------------------------------------------------
+# Scripts with error handling
+# ---------------------------------------------------------------------------
+script:
+  meraki_port_7_enable:
+    alias: "Meraki Port 7 Enable"
+    mode: single
+    sequence:
+      - action: rest_command.meraki_port_7_on
+        response_variable: meraki_response
+        continue_on_error: true
+      - delay:
+          seconds: 4
+      - action: homeassistant.update_entity
+        data:
+          entity_id: sensor.meraki_port_7_enabled
+      - delay:
+          milliseconds: 500
+      - if:
+          - condition: template
+            value_template: >
+              {{ not is_state('sensor.meraki_port_7_enabled', 'on') }}
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Meraki Port 7 — enable failed"
+              message: >
+                Could not confirm port 7 is enabled.
+                Check gateway logs, AUTH_TOKEN, ALLOWED_PORTS, Meraki API key.
+                Response: {{ meraki_response | default('n/a') }}
+              notification_id: meraki_port_7_error
+          - action: notify.notify
+            data:
+              title: "Meraki Port 7"
+              message: "Enable failed — see Home Assistant notification"
+            continue_on_error: true
+        else:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: meraki_port_7_error
+            continue_on_error: true
+
+  meraki_port_7_disable:
+    alias: "Meraki Port 7 Disable"
+    mode: single
+    sequence:
+      - action: rest_command.meraki_port_7_off
+        response_variable: meraki_response
+        continue_on_error: true
+      - delay:
+          seconds: 4
+      - action: homeassistant.update_entity
+        data:
+          entity_id: sensor.meraki_port_7_enabled
+      - delay:
+          milliseconds: 500
+      - if:
+          - condition: template
+            value_template: >
+              {{ is_state('sensor.meraki_port_7_enabled', 'on') }}
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Meraki Port 7 — disable failed"
+              message: >
+                Port 7 still reports as enabled after disable.
+                Check gateway logs, AUTH_TOKEN, ALLOWED_PORTS, Meraki API key.
+                Response: {{ meraki_response | default('n/a') }}
+              notification_id: meraki_port_7_error
+          - action: notify.notify
+            data:
+              title: "Meraki Port 7"
+              message: "Disable failed — see Home Assistant notification"
+            continue_on_error: true
+        else:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: meraki_port_7_error
+            continue_on_error: true
+
+  meraki_port_8_enable:
+    alias: "Meraki Port 8 Enable"
+    mode: single
+    sequence:
+      - action: rest_command.meraki_port_8_on
+        response_variable: meraki_response
+        continue_on_error: true
+      - delay:
+          seconds: 4
+      - action: homeassistant.update_entity
+        data:
+          entity_id: sensor.meraki_port_8_enabled
+      - delay:
+          milliseconds: 500
+      - if:
+          - condition: template
+            value_template: >
+              {{ not is_state('sensor.meraki_port_8_enabled', 'on') }}
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Meraki Port 8 — enable failed"
+              message: >
+                Could not confirm port 8 is enabled.
+                Check gateway logs, AUTH_TOKEN, ALLOWED_PORTS, Meraki API key.
+                Response: {{ meraki_response | default('n/a') }}
+              notification_id: meraki_port_8_error
+          - action: notify.notify
+            data:
+              title: "Meraki Port 8"
+              message: "Enable failed — see Home Assistant notification"
+            continue_on_error: true
+        else:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: meraki_port_8_error
+            continue_on_error: true
+
+  meraki_port_8_disable:
+    alias: "Meraki Port 8 Disable"
+    mode: single
+    sequence:
+      - action: rest_command.meraki_port_8_off
+        response_variable: meraki_response
+        continue_on_error: true
+      - delay:
+          seconds: 4
+      - action: homeassistant.update_entity
+        data:
+          entity_id: sensor.meraki_port_8_enabled
+      - delay:
+          milliseconds: 500
+      - if:
+          - condition: template
+            value_template: >
+              {{ is_state('sensor.meraki_port_8_enabled', 'on') }}
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Meraki Port 8 — disable failed"
+              message: >
+                Port 8 still reports as enabled after disable.
+                Check gateway logs, AUTH_TOKEN, ALLOWED_PORTS, Meraki API key.
+                Response: {{ meraki_response | default('n/a') }}
+              notification_id: meraki_port_8_error
+          - action: notify.notify
+            data:
+              title: "Meraki Port 8"
+              message: "Disable failed — see Home Assistant notification"
+            continue_on_error: true
+        else:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: meraki_port_8_error
+            continue_on_error: true
